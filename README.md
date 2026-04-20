@@ -1,2 +1,2 @@
 # RubikRace
-Online sliding puzzle
+Online sliding puzzle 
