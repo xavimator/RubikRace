@@ -51,16 +51,31 @@
     window.__fbSendReset = () => set(resetRef, { ts: Date.now() });
 
     // ── Finish notifications ──
-    // onChildAdded with startAfter(now) only fires for NEW children, never old ones
     const notifRef   = ref(db, 'rubitrack/notifications');
     const notifQuery = query(notifRef, orderByChild('ts'), startAfter(Date.now()));
     onChildAdded(notifQuery, (snap) => {
       const item = snap.val();
       if (item) window.__fbNotifReceived(item);
     });
-
     window.__fbSendFinish = (name, time, moves) => {
       push(notifRef, { name, time, moves, ts: Date.now() });
+    };
+
+    // ── Presence: active players ──
+    // Each player writes their name + ts under rubitrack/presence/<uid>
+    // We listen and filter players active in last 15s
+    const presenceRef = ref(db, 'rubitrack/presence');
+    onValue(presenceRef, (snap) => {
+      const now = Date.now();
+      const players = [];
+      snap.forEach(child => {
+        const v = child.val();
+        if (v && v.name && (now - v.ts) < 15000) players.push(v.name);
+      });
+      window.__fbPresenceReceived(players);
+    });
+    window.__fbUpdatePresence = (uid, name) => {
+      set(ref(db, 'rubitrack/presence/' + uid), { name, ts: Date.now() });
     };
 
     window.__fbReady = true;
@@ -86,76 +101,92 @@
     @keyframes syncPulse  { 0%,100%{opacity:.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.3)} }
     @keyframes toastIn    { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
     @keyframes toastOut   { from{transform:translateX(0);opacity:1} to{transform:translateX(120%);opacity:0} }
+    @keyframes playerIn   { from{transform:translateY(-6px);opacity:0} to{transform:translateY(0);opacity:1} }
 
     .tile-btn  { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
     .tile-btn:hover  { transform:scale(1.06) !important; filter:brightness(1.25) !important; }
     .tile-btn:active { transform:scale(0.95) !important; }
     .reset-btn:hover  { background:#2a1f5e !important; transform:translateY(-1px); }
     .reset-btn:active { transform:translateY(1px); }
-    .legend-btn:hover { opacity:1 !important; }
 
-    /* ══ Widget ══ */
+    /* ══ Widget toggle button ══ */
     #rr-widget {
       position:fixed; top:14px; right:14px; z-index:300;
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
       animation:widgetIn .5s cubic-bezier(.34,1.4,.64,1);
     }
     #rr-toggle {
-      display:flex; align-items:center; gap:12px;
+      display:flex; align-items:center; gap:10px;
       background:rgba(10,8,24,0.9);
-      border:1.5px solid rgba(156,90,255,0.45); border-radius:16px;
-      padding:10px 18px 10px 12px;
+      border:1.5px solid rgba(156,90,255,0.45); border-radius:14px;
+      padding:8px 14px 8px 10px;
       cursor:pointer; color:#c89fff;
-      font-size:14px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+      font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
       backdrop-filter:blur(14px);
       transition:background .2s,border-color .2s,box-shadow .2s;
       user-select:none; white-space:nowrap;
       box-shadow:0 4px 20px rgba(0,0,0,0.4);
     }
     #rr-toggle:hover { background:rgba(124,58,237,.3); border-color:rgba(156,90,255,.8); }
-    .rr-preview { display:grid; grid-template-columns:repeat(3,1fr); gap:3px; width:48px; }
+    .rr-preview { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; width:36px; }
     .rr-preview span {
-      display:block; width:14px; height:14px; border-radius:3px;
+      display:block; width:10px; height:10px; border-radius:2px;
       border:1.5px solid #444; transition:background .4s,border-color .4s;
     }
     #rr-sync-dot {
-      width:8px; height:8px; border-radius:50%; background:#444; flex-shrink:0; transition:background .4s;
+      width:7px; height:7px; border-radius:50%; background:#444; flex-shrink:0; transition:background .4s;
     }
     #rr-sync-dot.connected    { background:#22c55e; animation:syncPulse 2s ease-in-out infinite; }
     #rr-sync-dot.disconnected { background:#ef4444; }
     #rr-sync-dot.connecting   { background:#f59e0b; animation:syncPulse .8s ease-in-out infinite; }
 
-    /* Panel */
+    /* ══ Panel — 25% smaller than original ══ */
     #rr-panel {
-      position:absolute; top:calc(100% + 10px); right:0;
-      width:min(540px, 92vw);
+      position:absolute; top:calc(100% + 8px); right:0;
+      width:min(405px, 92vw);           /* 540 × 0.75 */
       background:rgba(6,4,20,0.97);
-      border:1.5px solid rgba(156,90,255,0.35); border-radius:22px;
-      padding:28px 28px 22px;
+      border:1.5px solid rgba(156,90,255,0.35); border-radius:18px;
+      padding:20px 20px 16px;           /* 28/28/22 × 0.75 */
       backdrop-filter:blur(18px);
       box-shadow:0 24px 60px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.04);
       animation:panelIn .22s ease;
     }
     #rr-panel.hidden { display:none; }
-    #rr-panel-header { display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:2px; }
-    #rr-panel h3 { color:#fff; font-size:22px; font-weight:700; letter-spacing:.05em; }
-    .rr-tm { color:#9b59b6; font-size:11px; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:18px; }
-    #rr-status-text { text-align:center; font-size:11px; color:rgba(255,255,255,.3); margin-bottom:14px; letter-spacing:.08em; min-height:16px; }
-    #rr-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:18px; }
+    #rr-panel-header { display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:2px; }
+    #rr-panel h3 { color:#fff; font-size:16px; font-weight:700; letter-spacing:.05em; }
+    .rr-tm { color:#9b59b6; font-size:9px; letter-spacing:4px; text-transform:uppercase; text-align:center; margin-bottom:13px; }
+    #rr-status-text { text-align:center; font-size:10px; color:rgba(255,255,255,.3); margin-bottom:10px; letter-spacing:.08em; min-height:14px; }
+
+    /* Active players list */
+    #rr-players {
+      margin-bottom:12px; min-height:20px;
+      display:flex; flex-wrap:wrap; gap:5px; justify-content:center;
+    }
+    .rr-player-chip {
+      display:flex; align-items:center; gap:4px;
+      background:rgba(255,255,255,.07); border:1px solid rgba(156,90,255,.25);
+      border-radius:20px; padding:3px 9px;
+      font-size:10px; color:#c89fff; font-weight:600;
+      animation:playerIn .3s ease;
+    }
+    .rr-player-chip .dot { width:5px; height:5px; border-radius:50%; background:#22c55e; }
+
+    #rr-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-bottom:13px; }
     .rrcell {
-      height:132px; border-radius:12px; border:3px solid #333;
+      height:99px;                      /* 132 × 0.75 */
+      border-radius:9px; border:2px solid #333;
       transition:background .4s ease,border-color .4s ease;
       position:relative; overflow:hidden;
     }
     .rrcell::after {
       content:''; position:absolute; top:0; left:0; right:0; height:40%;
       background:linear-gradient(to bottom,rgba(255,255,255,.18),transparent);
-      border-radius:12px 12px 50% 50%; pointer-events:none;
+      border-radius:9px 9px 50% 50%; pointer-events:none;
     }
     #rr-shuffle {
-      width:100%; padding:14px;
+      width:100%; padding:10px;
       background:#7c3aed; color:#fff; border:none;
-      border-radius:12px; font-size:15px; font-weight:700;
+      border-radius:9px; font-size:12px; font-weight:700;
       cursor:pointer; transition:background .2s,transform .1s,opacity .2s;
       letter-spacing:.05em;
     }
@@ -163,13 +194,12 @@
     #rr-shuffle:active  { transform:scale(0.97); }
     #rr-shuffle:disabled{ opacity:.4; cursor:not-allowed; }
 
-    /* Finished overlay */
+    /* ══ Finished overlay ══ */
     .finished-frame {
       position:absolute; inset:0; border-radius:16px;
       box-shadow:inset 0 0 0 calc(12px + var(--tile) + 5px) rgba(0,0,0,0.91);
       display:flex; align-items:center; justify-content:center;
-      pointer-events:none; z-index:20;
-      animation:frameIn .3s ease;
+      pointer-events:none; z-index:20; animation:frameIn .3s ease;
     }
     .finished-text {
       font-family:'Pacifico',cursive;
@@ -185,46 +215,41 @@
     #toast-container {
       position:fixed; bottom:24px; right:16px;
       display:flex; flex-direction:column; gap:10px;
-      z-index:500; pointer-events:none;
-      max-width:min(340px,90vw);
+      z-index:500; pointer-events:none; max-width:min(320px,90vw);
     }
     .toast {
-      background:rgba(6,4,20,0.96);
-      border:1.5px solid rgba(34,197,94,.4);
-      border-radius:16px; padding:14px 18px;
-      backdrop-filter:blur(16px);
-      box-shadow:0 8px 32px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04);
-      animation:toastIn .4s cubic-bezier(.34,1.4,.64,1);
-      pointer-events:auto;
+      background:rgba(6,4,20,0.96); border:1.5px solid rgba(34,197,94,.4);
+      border-radius:16px; padding:14px 18px; backdrop-filter:blur(16px);
+      box-shadow:0 8px 32px rgba(0,0,0,.6);
+      animation:toastIn .4s cubic-bezier(.34,1.4,.64,1); pointer-events:auto;
     }
     .toast.out { animation:toastOut .4s ease forwards; }
-    .toast-emoji { font-size:22px; flex-shrink:0; }
     .toast-row { display:flex; align-items:flex-start; gap:12px; }
+    .toast-emoji { font-size:22px; flex-shrink:0; }
     .toast-body { flex:1; }
     .toast-title {
-      font-family:'Pacifico',cursive;
-      font-size:15px;
+      font-family:'Pacifico',cursive; font-size:14px;
       background:linear-gradient(90deg,#FFE566,#FFA85C);
       -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-      line-height:1.2; margin-bottom:4px;
+      line-height:1.2; margin-bottom:3px;
     }
-    .toast-msg { font-size:12px; color:rgba(255,255,255,.55); line-height:1.4; }
-    .toast-meta { font-size:11px; color:rgba(255,255,255,.3); margin-top:5px; letter-spacing:.05em; }
+    .toast-msg  { font-size:12px; color:rgba(255,255,255,.55); }
+    .toast-meta { font-size:11px; color:rgba(255,255,255,.3); margin-top:4px; }
 
-    /* Name input in panel */
-    #rr-name-wrap {
+    /* ══ Name input (main UI) ══ */
+    .name-input-wrap {
       display:flex; align-items:center; gap:8px;
-      margin-bottom:16px;
-      background:rgba(255,255,255,.05); border-radius:10px;
-      padding:10px 14px; border:1px solid rgba(255,255,255,.1);
+      background:rgba(255,255,255,.05); border-radius:12px;
+      padding:10px 16px; border:1px solid rgba(255,255,255,.1);
+      width:100%; max-width:340px;
     }
-    #rr-name-wrap label { font-size:11px; color:rgba(255,255,255,.4); letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
-    #rr-name-input {
+    .name-input-wrap label { font-size:11px; color:rgba(255,255,255,.4); letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+    .name-input-wrap input {
       flex:1; background:transparent; border:none; outline:none;
       color:#fff; font-size:15px; font-weight:600;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      font-family:'Trebuchet MS','Segoe UI',sans-serif;
     }
-    #rr-name-input::placeholder { color:rgba(255,255,255,.2); }
+    .name-input-wrap input::placeholder { color:rgba(255,255,255,.2); }
   </style>
 </head>
 <body>
@@ -240,22 +265,16 @@
         <span></span><span></span><span></span>
       </div>
       Pattern
-      <div id="rr-sync-dot" class="connecting" title="Conectando..."></div>
+      <div id="rr-sync-dot" class="connecting"></div>
     </div>
     <div id="rr-panel" class="hidden">
       <div id="rr-panel-header">
         <h3>Pattern</h3>
-        <div id="rr-sync-dot-panel" style="width:8px;height:8px;border-radius:50%;background:#444;transition:background .4s;"></div>
+        <div id="rr-sync-dot-panel" style="width:7px;height:7px;border-radius:50%;background:#444;transition:background .4s;"></div>
       </div>
       <p class="rr-tm">Xavimator™</p>
-      <div id="rr-status-text">Conectando a Firebase…</div>
-
-      <!-- Player name -->
-      <div id="rr-name-wrap">
-        <label for="rr-name-input">👤 Jugador</label>
-        <input id="rr-name-input" type="text" maxlength="20" placeholder="Tu nombre…" />
-      </div>
-
+      <div id="rr-status-text">Conectando…</div>
+      <div id="rr-players"></div>
       <div id="rr-grid"></div>
       <button id="rr-shuffle" onclick="rrShuffle()" disabled>Shuffle</button>
     </div>
@@ -275,27 +294,16 @@
     let fbConnected = false;
     window.rrPattern = [];
 
-    // Save/restore player name
-    const nameInput = document.getElementById('rr-name-input');
-    nameInput.value = localStorage.getItem('rr-player-name') || '';
-    nameInput.addEventListener('input', () => {
-      localStorage.setItem('rr-player-name', nameInput.value.trim());
-    });
-    function getPlayerName() {
-      return nameInput.value.trim() || 'Anónimo';
-    }
-    window.getPlayerName = getPlayerName;
-
     // Build grid cells
     (function rrInit() {
       const grid = document.getElementById('rr-grid');
       for (let i = 0; i < 9; i++) {
         const cell = document.createElement('div');
-        cell.className = 'rrcell';
-        grid.appendChild(cell);
+        cell.className = 'rrcell'; grid.appendChild(cell);
       }
     })();
 
+    // Toggle panel
     function rrToggle() {
       rrOpen = !rrOpen;
       document.getElementById('rr-panel').classList.toggle('hidden', !rrOpen);
@@ -307,6 +315,7 @@
       }
     });
 
+    // Apply pattern to DOM + notify React
     function rrApplyPattern(pattern) {
       window.rrPattern = pattern;
       document.querySelectorAll('.rrcell').forEach((cell, i) => {
@@ -321,48 +330,39 @@
     }
 
     window.__fbPatternReceived = function(pattern) {
-      rrApplyPattern(pattern);
-      setConnected(true);
+      rrApplyPattern(pattern); setConnected(true);
     };
 
-    // ── Toast system ──
-    function showToast({ emoji, title, msg, meta }) {
-      const container = document.getElementById('toast-container');
-      const el = document.createElement('div');
-      el.className = 'toast';
-      el.innerHTML = `
-        <div class="toast-row">
-          <div class="toast-emoji">${emoji}</div>
-          <div class="toast-body">
-            <div class="toast-title">${title}</div>
-            <div class="toast-msg">${msg}</div>
-            ${meta ? `<div class="toast-meta">${meta}</div>` : ''}
-          </div>
-        </div>`;
-      container.appendChild(el);
-      // Auto-dismiss after 5s
-      setTimeout(() => {
-        el.classList.add('out');
-        setTimeout(() => el.remove(), 400);
-      }, 5000);
-    }
+    // Active players display
+    window.__fbPresenceReceived = function(players) {
+      const container = document.getElementById('rr-players');
+      if (!players.length) { container.innerHTML = ''; return; }
+      container.innerHTML = players.map(name =>
+        `<div class="rr-player-chip"><span class="dot"></span>${name}</div>`
+      ).join('');
+    };
 
-    // ── Receive finish notification from Firebase ──
-    // ── Called by Firebase when any client triggers a reset ──
+    // Reset
     let lastResetTs = 0;
     window.__fbResetReceived = function(ts) {
-      if (ts <= lastResetTs) return;  // ignore stale/duplicate
+      if (ts <= lastResetTs) return;
       lastResetTs = ts;
       window.dispatchEvent(new CustomEvent('rrGlobalReset', { detail: ts }));
     };
 
+    // Toast
     window.__fbNotifReceived = function(item) {
-      showToast({
-        emoji: '🏁',
-        title: `${item.name} ha terminado!`,
-        msg:   `Ha completado el patrón`,
-        meta:  `⏱ ${item.time} · ${item.moves} movimientos`,
-      });
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.innerHTML = `<div class="toast-row">
+        <div class="toast-emoji">🏁</div>
+        <div class="toast-body">
+          <div class="toast-title">${item.name} ha terminado!</div>
+          <div class="toast-msg">Ha completado el patrón</div>
+          <div class="toast-meta">⏱ ${item.time} · ${item.moves} movimientos</div>
+        </div></div>`;
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 5000);
     };
 
     function rrGenPattern() {
@@ -384,21 +384,20 @@
 
     function setConnected(ok) {
       fbConnected = ok;
-      const dot      = document.getElementById('rr-sync-dot');
-      const dotPanel = document.getElementById('rr-sync-dot-panel');
-      const status   = document.getElementById('rr-status-text');
-      const btn      = document.getElementById('rr-shuffle');
-      dot.className  = ok ? 'connected' : 'disconnected';
-      dotPanel.style.background = ok ? '#22c55e' : '#ef4444';
-      dotPanel.style.boxShadow  = ok ? '0 0 6px #22c55e' : 'none';
-      status.textContent        = ok ? '● Sincronizado en tiempo real' : '● Sin conexión — modo local';
-      status.style.color        = ok ? 'rgba(34,197,94,.8)' : 'rgba(239,68,68,.7)';
-      btn.disabled = false;
+      const dot = document.getElementById('rr-sync-dot');
+      const dotP = document.getElementById('rr-sync-dot-panel');
+      const status = document.getElementById('rr-status-text');
+      dot.className = ok ? 'connected' : 'disconnected';
+      dotP.style.background = ok ? '#22c55e' : '#ef4444';
+      dotP.style.boxShadow  = ok ? '0 0 6px #22c55e' : 'none';
+      status.textContent = ok ? '● Sincronizado en tiempo real' : '● Sin conexión — modo local';
+      status.style.color = ok ? 'rgba(34,197,94,.8)' : 'rgba(239,68,68,.7)';
+      document.getElementById('rr-shuffle').disabled = false;
     }
 
     setTimeout(() => {
       if (!fbConnected) {
-        document.getElementById('rr-status-text').textContent = '⚠ Configura Firebase para sincronizar';
+        document.getElementById('rr-status-text').textContent = '⚠ Firebase no configurado';
         document.getElementById('rr-status-text').style.color = 'rgba(245,158,11,.8)';
         document.getElementById('rr-shuffle').disabled = false;
         rrApplyPattern(rrGenPattern());
@@ -421,15 +420,15 @@
     const colorMap = {};
     COLORS.forEach(c => { colorMap[c.id] = c; });
 
-    const CENTER = [6,7,8,11,12,13,16,17,18];
-    const RR_IDS = ['white','green','yellow','blue','red','orange'];
+    const CENTER  = [6,7,8,11,12,13,16,17,18];
+    const RR_IDS  = ['white','green','yellow','blue','red','orange'];
+
+    // Unique ID for this browser session (for presence tracking)
+    const SESSION_UID = Math.random().toString(36).slice(2);
 
     function checkMatch(tiles, pattern) {
       if (!pattern || pattern.length < 9) return false;
-      return CENTER.every((ti,i) => {
-        const t = tiles[ti];
-        return t && t.colorId === RR_IDS[pattern[i]];
-      });
+      return CENTER.every((ti,i) => { const t=tiles[ti]; return t && t.colorId===RR_IDS[pattern[i]]; });
     }
 
     function buildSolvedTiles() {
@@ -463,23 +462,40 @@
       const [time,      setTime]      = useState(0);
       const [finished,  setFinished]  = useState(false);
       const [lastMoved, setLastMoved] = useState(null);
-      const [showLeg,   setShowLeg]   = useState(false);
       const [rrPat,     setRrPat]     = useState([]);
+      const [playerName,setPlayerName]= useState(()=>localStorage.getItem('rr-player-name')||'');
       const timerRef    = useRef(null);
-      const finishedRef = useRef(false); // avoid double-firing
+      const finishedRef = useRef(false);
+      const presenceRef = useRef(null); // interval for presence heartbeat
 
+      // Presence heartbeat — send name every 8s while playing
+      const sendPresence = useCallback((name) => {
+        if (typeof window.__fbUpdatePresence === 'function' && name.trim()) {
+          window.__fbUpdatePresence(SESSION_UID, name.trim());
+        }
+      }, []);
+
+      useEffect(() => {
+        if (playerName.trim()) {
+          sendPresence(playerName);
+          clearInterval(presenceRef.current);
+          presenceRef.current = setInterval(() => sendPresence(playerName), 8000);
+        }
+        return () => clearInterval(presenceRef.current);
+      }, [playerName]);
+
+      // Sync pattern from widget
       useEffect(() => {
         if (window.rrPattern.length) setRrPat([...window.rrPattern]);
         function onPat(e) {
-          setRrPat([...e.detail]);
-          setFinished(false);
-          finishedRef.current = false;
+          setRrPat([...e.detail]); setFinished(false); finishedRef.current = false;
           if (!timerRef.current) timerRef.current = setInterval(()=>setTime(t=>t+1),1000);
         }
         window.addEventListener('rrPatternChange', onPat);
         return () => window.removeEventListener('rrPatternChange', onPat);
       }, []);
 
+      // Timer
       useEffect(() => {
         if (!finished) {
           timerRef.current = setInterval(()=>setTime(t=>t+1),1000);
@@ -489,7 +505,7 @@
         return () => { clearInterval(timerRef.current); timerRef.current=null; };
       }, [finished]);
 
-      // Listen for global reset from Firebase
+      // Global reset listener
       useEffect(() => {
         function onGlobalReset() { doLocalReset(); }
         window.addEventListener('rrGlobalReset', onGlobalReset);
@@ -503,30 +519,35 @@
         const nt = [...tiles];
         [nt[ei],nt[idx]]=[nt[idx],nt[ei]];
         setTiles(nt); setMoves(m=>m+1); setLastMoved(ei);
+        // Update presence on every move
+        sendPresence(playerName || 'Anónimo');
         if (!finishedRef.current && checkMatch(nt, rrPat)) {
           finishedRef.current = true;
           setFinished(true);
-          // Send finish notification to all players
-          if (typeof window.__fbSendFinish === 'function') {
-            const t = timerRef.current ? null : null; // time captured via closure below
-            setTimeout(() => {
-              const name = typeof window.getPlayerName==='function' ? window.getPlayerName() : 'Anónimo';
-              window.__fbSendFinish(name, fmt(time+1), moves+1);
-            }, 50);
-          }
+          setTimeout(() => {
+            if (typeof window.__fbSendFinish==='function') {
+              window.__fbSendFinish(playerName||'Anónimo', fmt(time+1), moves+1);
+            }
+          }, 50);
         }
-      }, [tiles, finished, rrPat, time, moves]);
+      }, [tiles, finished, rrPat, time, moves, playerName, sendPresence]);
 
-      const handleReset = () => {
-        // Broadcast new pattern + reset to all clients via Firebase
-        if (typeof window.rrShuffle === 'function') window.rrShuffle(); // new pattern for everyone
-        if (typeof window.__fbSendReset === 'function') window.__fbSendReset(); // reset timer for everyone
-        else doLocalReset();
-      };
       const doLocalReset = () => {
         setTiles(shuffleTiles(buildSolvedTiles()));
         setMoves(0); setTime(0); setFinished(false); setLastMoved(null);
         finishedRef.current = false;
+      };
+
+      const handleReset = () => {
+        if (typeof window.rrShuffle==='function') window.rrShuffle();
+        if (typeof window.__fbSendReset==='function') window.__fbSendReset();
+        else doLocalReset();
+      };
+
+      const handleNameChange = (e) => {
+        const v = e.target.value;
+        setPlayerName(v);
+        localStorage.setItem('rr-player-name', v);
       };
 
       const ei = tiles.indexOf(null);
@@ -555,7 +576,7 @@
           </div>
 
           {/* Title */}
-          <div style={{textAlign:"left",marginBottom:"22px",animation:"slideIn .6s ease",alignSelf:"flex-start",paddingLeft:"4px"}}>
+          <div style={{textAlign:"left",marginBottom:"18px",animation:"slideIn .6s ease",alignSelf:"flex-start",paddingLeft:"4px"}}>
             <h1 style={{
               margin:0,fontSize:"clamp(20px,5vw,32px)",fontWeight:900,
               letterSpacing:"0.15em",textTransform:"uppercase",
@@ -566,6 +587,19 @@
             <p style={{margin:"4px 0 0",color:"rgba(255,255,255,.35)",fontSize:"12px",letterSpacing:"0.2em"}}>
               5 × 5 · SLIDING PUZZLE
             </p>
+          </div>
+
+          {/* Name input */}
+          <div className="name-input-wrap" style={{marginBottom:"14px"}}>
+            <label htmlFor="player-name">👤</label>
+            <input
+              id="player-name"
+              type="text"
+              maxLength={20}
+              placeholder="Tu nombre…"
+              value={playerName}
+              onChange={handleNameChange}
+            />
           </div>
 
           {/* Stats */}
@@ -633,30 +667,6 @@
               </div>
             )}
           </div>
-
-          {/* Legend */}
-          <button className="legend-btn" onClick={()=>setShowLeg(v=>!v)} style={{
-            marginTop:"14px",background:"none",
-            border:"1px solid rgba(255,255,255,.15)",borderRadius:"8px",
-            color:"rgba(255,255,255,.5)",fontSize:"12px",
-            padding:"6px 16px",cursor:"pointer",
-            letterSpacing:".1em",transition:"opacity .2s",opacity:.7,
-          }}>{showLeg?"▲ OCULTAR LEYENDA":"▼ VER LEYENDA"}</button>
-
-          {showLeg&&(
-            <div style={{marginTop:"10px",display:"flex",flexWrap:"wrap",gap:"8px",justifyContent:"center",maxWidth:"380px",animation:"slideIn .2s ease"}}>
-              {COLORS.map(c=>(
-                <div key={c.id} style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,.06)",borderRadius:"6px",padding:"5px 10px",border:"1px solid rgba(255,255,255,.08)"}}>
-                  <div style={{display:"flex",gap:"3px"}}>
-                    {[1,2,3,4].map(n=>(
-                      <div key={n} style={{width:"14px",height:"14px",borderRadius:"3px",background:`linear-gradient(135deg,${c.shine},${c.bg})`,boxShadow:`0 2px 0 ${c.shadow}`}}/>
-                    ))}
-                  </div>
-                  <span style={{fontSize:"11px",color:c.text,fontWeight:700}}>{c.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
           {/* Reset */}
           <button className="reset-btn" onClick={handleReset} style={{
