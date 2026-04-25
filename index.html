@@ -236,6 +236,42 @@
     .toast-msg  { font-size:12px; color:rgba(255,255,255,.55); }
     .toast-meta { font-size:11px; color:rgba(255,255,255,.3); margin-top:4px; }
 
+    /* ══ Confirmation modal ══ */
+    @keyframes modalIn  { from{transform:scale(0.85);opacity:0} 70%{transform:scale(1.03)} to{transform:scale(1);opacity:1} }
+    .confirm-backdrop {
+      position:fixed; inset:0; background:rgba(0,0,0,.7);
+      display:flex; align-items:center; justify-content:center;
+      z-index:400; backdrop-filter:blur(6px);
+      animation:frameIn .2s ease;
+    }
+    .confirm-box {
+      background:linear-gradient(145deg,#12103a,#0a0818);
+      border:1.5px solid rgba(156,90,255,.35); border-radius:20px;
+      padding:28px 28px 22px; text-align:center;
+      box-shadow:0 24px 60px rgba(0,0,0,.7);
+      animation:modalIn .35s cubic-bezier(.34,1.4,.64,1);
+      max-width:300px; width:90%;
+    }
+    .confirm-box .icon  { font-size:36px; margin-bottom:10px; }
+    .confirm-box h4     { color:#fff; font-size:16px; font-weight:800; margin-bottom:6px; letter-spacing:.04em; }
+    .confirm-box p      { color:rgba(255,255,255,.45); font-size:12px; line-height:1.5; margin-bottom:20px; }
+    .confirm-btns       { display:flex; gap:10px; justify-content:center; }
+    .confirm-btn-yes {
+      flex:1; padding:10px; border-radius:10px; border:none;
+      background:linear-gradient(135deg,#7c3aed,#4f1fbf);
+      color:#fff; font-size:13px; font-weight:700; cursor:pointer;
+      transition:filter .2s; letter-spacing:.05em;
+    }
+    .confirm-btn-yes:hover { filter:brightness(1.2); }
+    .confirm-btn-no {
+      flex:1; padding:10px; border-radius:10px;
+      border:1px solid rgba(255,255,255,.15);
+      background:rgba(255,255,255,.07);
+      color:rgba(255,255,255,.6); font-size:13px; font-weight:600; cursor:pointer;
+      transition:background .2s;
+    }
+    .confirm-btn-no:hover { background:rgba(255,255,255,.13); }
+
     /* ══ Name input (main UI) ══ */
     .name-input-wrap {
       display:flex; align-items:center; gap:8px;
@@ -336,10 +372,14 @@
     // Active players display
     window.__fbPresenceReceived = function(players) {
       const container = document.getElementById('rr-players');
-      if (!players.length) { container.innerHTML = ''; return; }
-      container.innerHTML = players.map(name =>
-        `<div class="rr-player-chip"><span class="dot"></span>${name}</div>`
-      ).join('');
+      if (!players.length) { container.innerHTML = ''; }
+      else {
+        container.innerHTML = players.map(name =>
+          `<div class="rr-player-chip"><span class="dot"></span>${name}</div>`
+        ).join('');
+      }
+      // Notify React with current player list
+      window.dispatchEvent(new CustomEvent('rrPresenceChange', { detail: players }));
     };
 
     // Reset
@@ -462,8 +502,10 @@
       const [time,      setTime]      = useState(0);
       const [finished,  setFinished]  = useState(false);
       const [lastMoved, setLastMoved] = useState(null);
-      const [rrPat,     setRrPat]     = useState([]);
-      const [playerName,setPlayerName]= useState(()=>localStorage.getItem('rr-player-name')||'');
+      const [rrPat,       setRrPat]       = useState([]);
+      const [playerName,  setPlayerName]  = useState(()=>localStorage.getItem('rr-player-name')||'');
+      const [activePlayers,setActivePlayers] = useState([]);
+      const [showConfirm, setShowConfirm] = useState(false);
       const timerRef    = useRef(null);
       const finishedRef = useRef(false);
       const presenceRef = useRef(null); // interval for presence heartbeat
@@ -483,6 +525,13 @@
         }
         return () => clearInterval(presenceRef.current);
       }, [playerName]);
+
+      // Sync active players from Firebase
+      useEffect(() => {
+        function onPresence(e) { setActivePlayers(e.detail || []); }
+        window.addEventListener('rrPresenceChange', onPresence);
+        return () => window.removeEventListener('rrPresenceChange', onPresence);
+      }, []);
 
       // Sync pattern from widget
       useEffect(() => {
@@ -539,6 +588,14 @@
       };
 
       const handleReset = () => {
+        if (activePlayers.length > 1) {
+          setShowConfirm(true);
+        } else {
+          doReset();
+        }
+      };
+      const doReset = () => {
+        setShowConfirm(false);
         if (typeof window.rrShuffle==='function') window.rrShuffle();
         if (typeof window.__fbSendReset==='function') window.__fbSendReset();
         else doLocalReset();
@@ -667,6 +724,21 @@
               </div>
             )}
           </div>
+
+          {/* Confirmation modal */}
+          {showConfirm && (
+            <div className="confirm-backdrop" onClick={()=>setShowConfirm(false)}>
+              <div className="confirm-box" onClick={e=>e.stopPropagation()}>
+                <div className="icon">🎮</div>
+                <h4>¿Nuevo juego?</h4>
+                <p>Hay <strong style={{color:"#c89fff"}}>{activePlayers.length} jugadores</strong> conectados.<br/>Esto reiniciará el tiempo y el patrón para todos.</p>
+                <div className="confirm-btns">
+                  <button className="confirm-btn-no"  onClick={()=>setShowConfirm(false)}>Cancelar</button>
+                  <button className="confirm-btn-yes" onClick={doReset}>¡Sí, reiniciar!</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Reset */}
           <button className="reset-btn" onClick={handleReset} style={{
